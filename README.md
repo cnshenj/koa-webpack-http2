@@ -3,7 +3,7 @@
 An HTTP/2 web server using Koa framework and webpack development/HMR middleware.
 
 Features:
-- *Only* supports HTTP/2, requires Node.js 8.4.0 or higher. Recommended: Node.js 10.0.0 or above.
+- Supports HTTP/1.1 and HTTP/2, requires Node.js 8.4.0 or higher. Recommended: Node.js 10.0.0 or above.
 - Built-in webpack development and HMR (Hot Module Replacement) support (using a separate HTTP/1.1 server, since HTTP/2 doesn't support WebSocket).
 - Provides default development SSL certificate for both HTTPS and Secure WebSocket (see details below).
 
@@ -43,7 +43,7 @@ const server = new KoaServer({
     // Set customer headers, or override default cache behavior
     setHeaders: (response /* http2.Http2ServerResponse */, filePath /* string */, stat) => {},
     // Configure the server and the Koa app (e.g. app.use(cors()))
-    configure?: (server /* KoaServer */, app /* Koa */) => {
+    configure: (server /* KoaServer */, app /* Koa */) => {
         // Default configuration includes compression, CORS,
         // webpack middleware in development environment, and static files in production environment
         server.configureDefault();
