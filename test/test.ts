@@ -3,18 +3,7 @@ import * as path from "path";
 
 import { IKoaServerOptions, KoaServer } from "../lib/koa-server";
 
-const options: IKoaServerOptions = {
-    staticPath: path.resolve(__dirname, "public/dist")
-};
-
-const dev = "development";
-if (process.env.NODE_ENV || dev === dev) {
-    options.webpackConfig = require("./webpack.config");
-}
-
-const server = new KoaServer(options);
-
-server.configure = () => {
+const configure = (server: KoaServer) => {
     server.configureDefault();
 
     const app = server.app;
@@ -26,4 +15,18 @@ server.configure = () => {
     });
 };
 
-server.listen(8080);
+const options: IKoaServerOptions = {
+    staticPath: path.resolve(__dirname, "public/dist"),
+    useHttp2: true,
+    useHttps: true,
+    configure
+};
+
+const dev = "development";
+if ((process.env.NODE_ENV || dev) === dev) {
+    // tslint:disable-next-line:no-var-requires
+    options.webpackConfig = require("./webpack.config");
+}
+
+const webServer = new KoaServer(options);
+webServer.listen(8080);

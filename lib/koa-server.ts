@@ -13,6 +13,7 @@ import * as winston from "winston";
 
 export interface IKoaServerOptions {
     staticPath: string;
+    useHttp2?: boolean;
     useHttps?: boolean;
     cert?: string | Buffer | Array<string | Buffer>;
     key?: string | Buffer | Array<string | Buffer>;
@@ -21,6 +22,7 @@ export interface IKoaServerOptions {
     entry?: string;
     maxAge?: number;
     setHeaders?: (response: http2.Http2ServerResponse, filePath: string, stat: any) => void;
+    configure?: (server: KoaServer) => void;
     webpackConfig?: any;
 }
 
@@ -50,22 +52,19 @@ export class KoaServer {
     private _app: Koa;
 
     /** The HTTP/2 server. */
-    private _server: http2.Http2Server;
+    private _server: http2.Http2Server | http.Server | https.Server;
 
     /** The WebSocket server for Hot Module Replacement (HMR). */
-    private _wsServer: http.Server | https.Server;
+    private _wsServer: http.Server | https.Server | undefined;
 
     /** Configures the Koa app. */
-    private _configure = this.configureDefault.bind(this);
+    private _configure: (server: KoaServer) => void = this.configureDefault.bind(this);
 
     /** The Koa app that handles requests. */
     public get app(): Koa { return this._app; }
 
     /** Gets the HTTP/2 server. */
-    public get httpServer(): http2.Http2Server { return this._server; }
-
-    /** Sets the function that configures the Koa app. */
-    public set configure(value: (app: Koa) => void) { this._configure = value; }
+    public get httpServer(): http2.Http2Server | http.Server | https.Server { return this._server; }
 
     /** Gets a value indicating whether it is development environment. */
     public get isDev(): boolean { return this.app.env === "development"; }
@@ -95,21 +94,27 @@ export class KoaServer {
      * @param options The server options.
      */
     constructor(options: IKoaServerOptions) {
-        this._options = options;
         this._app = new Koa();
         winston.info(`Koa app environment: ${this.app.env}`);
 
-        let { useHttps } = options;
-        if (typeof useHttps === "undefined") {
-            useHttps = true;
+        this._options = options;
+        const { useHttp2, useHttps, configure } = options;
+        if (useHttp2 || useHttps) {
+            this._server = useHttps
+                ? http2.createSecureServer({ cert: this.cert, key: this.key })
+                : http2.createServer();
+            this._wsServer = useHttps
+                ? https.createServer({ cert: this.wsCert, key: this.wsKey })
+                : http.createServer();
+        } else {
+            this._server = useHttps
+                ? https.createServer({ cert: this.cert, key: this.key })
+                : http.createServer();
         }
 
-        this._server = useHttps
-            ? http2.createSecureServer({ cert: this.cert, key: this.key })
-            : http2.createServer();
-        this._wsServer = useHttps
-            ? https.createServer({ cert: this.wsCert, key: this.wsKey })
-            : http.createServer();
+        if (configure) {
+            this._configure = configure;
+        }
     }
 
     /**
@@ -123,7 +128,7 @@ export class KoaServer {
             // Development mode
             // Use require instead of import to only load HMR modules in development mode
             const hmr = require("./hmr");
-            hmr.configureHmr(app, this._wsServer, webpackConfig);
+            hmr.configureHmr(app, this._wsServer || this._server, webpackConfig);
         } else {
             // Resource revalidation
             app.use(conditional());
@@ -163,44 +168,35 @@ export class KoaServer {
      * @param hostname The hostname of the server, default is localhost.
      */
     public async listen(port: number, hostname?: string): Promise<void> {
-        return new Promise<void>(resolve => {
-            this.listenToServer(port, hostname || "localhost", resolve);
-        });
-    }
-
-    /**
-     * Starts the server and listens to the specified port.
-     * If in development mode, Hot Module Replacement (HMR) will be enabled too.
-     * @param port The port to listen to.
-     * @param hostname The hostname of the server, default is localhost.
-     * @param callback The function to be called when the HTTP server is started.
-     */
-    private listenToServer(port: number, hostname: string, callback: () => void): void {
-        if (this.isDev) {
-            // HTTP/2 doesn't support WebSocket, use a separate HTTP/1.1 server instead
-            this._wsServer.listen(port + 1, hostname, () => {
-                this._configure();
-                this.startHttpServer(port, hostname, callback);
-            });
-        } else {
-            this._configure();
-            this.startHttpServer(port, hostname, callback);
+        if (typeof hostname === "undefined" && this.isDev) {
+            hostname = "localhost";
         }
+
+        return new Promise<void>(resolve => {
+            if (this._wsServer) {
+                // If a separate WebSocket server is used, start it first
+                this._wsServer.listen(port + 1, hostname, () => {
+                    this.startHttpServer(port, hostname, resolve);
+                });
+            } else {
+                this.startHttpServer(port, hostname, resolve);
+            }
+            });
     }
 
     /**
      * Starts the HTTP(S) server and listens to the specified port.
      * @param port The port to listen to.
      * @param hostname The hostname of the server, default is localhost.
-     * @param callback The function to be called when the HTTP server is started.
+     * @param callback The function to be called when the HTTP server starts listening.
      */
-    private startHttpServer(port: number, hostname: string, callback: () => void): void {
-        const server = this.httpServer;
-        server.on("request", this.app.callback());
-        server.listen(port, hostname, () => {
-            winston.info(`Koa server listening on port ${server.address().port}`);
-            callback();
-        });
+    private startHttpServer(port: number, hostname: string | undefined, callback: () => void): void {
+        const listeningListener = this.listeningListener.bind(this, callback);
+        if (typeof hostname === "undefined") {
+            this.httpServer.listen(port, listeningListener);
+        } else {
+            this.httpServer.listen(port, hostname, listeningListener);
+        }
     }
 
     /**
@@ -219,5 +215,19 @@ export class KoaServer {
             // Thus, they can be cached for a very long time (30 days, but can be longer)
             response.setHeader("Cache-Control", `max-age=${maxAge || KoaServer._defaultMaxAge}`);
         }
+    }
+
+    /**
+     * Invoked when the HTTP server emits "listening" event.
+     * @param callback The function to be called when the HTTP server starts listening.
+     */
+    private listeningListener(callback: () => void): void {
+        const server = this.httpServer;
+
+        // Configure the app until the server is started, so that server information can be used
+        this._configure(this);
+        server.on("request", this.app.callback());
+        winston.info(`Koa server listening on port ${server.address().port}`);
+        callback();
     }
 }

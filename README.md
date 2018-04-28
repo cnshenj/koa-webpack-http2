@@ -23,7 +23,9 @@ const KoaServer = require("koa-webpack-http2").KoaServer;
 const server = new KoaServer({
     // Path to static files (webpack generated scripts and files)
     staticPath: path.resolve(__dirname, "./public"),
-    // Default is true since most browsers only support HTTP/2 over TLS
+    // Default is false. Most browsers only support HTTP/2 over TLS (HTTPS)
+    useHttp2: true,
+    // Default is false
     useHttps: true,
     // Optional, a default certificate is provided
     cert: fs.readFileSync(path.resolve(__dirname, "./cert/myhost.crt")),
@@ -40,6 +42,18 @@ const server = new KoaServer({
     maxAge: 86400,
     // Set customer headers, or override default cache behavior
     setHeaders: (response /* http2.Http2ServerResponse */, filePath /* string */, stat) => {},
+    // Configure the server and the Koa app (e.g. app.use(cors()))
+    configure?: (server /* KoaServer */, app /* Koa */) => {
+        // Default configuration includes compression, CORS,
+        // webpack middleware in development environment, and static files in production environment
+        server.configureDefault();
+
+        // View engine setup
+        app.use(views(path.resolve(__dirname, "views"), { extension: "pug" }));
+        app.use(async (ctx, next) => {
+            await ctx.render("index");
+        });
+    };
     // The webpack configuration for development environment
     webpackConfig: require(./webpack.dev.js)
 });
@@ -48,7 +62,7 @@ server.listen(8080).then(() => { console.log("Koa server started."); });
 Note: webpack development and HMR middleware are only required in development environment.
 
 ## HTTP/2
-`koa-webpack-http2` only support HTTP/2, using Node.js native `http2` module. `http2` module has been available as an experimental feature since Node.js 8.4.0, and a stable feature in Node.js 10.
+`koa-webpack-http2` supports HTTP/2 using Node.js native `http2` module. `http2` module has been available as an experimental feature since Node.js 8.4.0, and a stable feature in Node.js 10.
 
 ## webpack
 Built-in `webpack` development and HMR support is provided by `koa-webpack` module.
