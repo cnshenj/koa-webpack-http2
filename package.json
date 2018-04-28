@@ -1,8 +1,13 @@
 {
   "name": "koa-webpack-http2",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "main": "index.js",
   "description": "HTTP/2 web server based on Koa framework, with webpack HMR support",
+  "keywords": [
+    "koa",
+    "webpack",
+    "http2"
+  ],
   "author": {
     "name": "cnshenj@gmail.com"
   },
