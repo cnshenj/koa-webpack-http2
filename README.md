@@ -20,6 +20,7 @@ yarn add koa-webpack-http2
 ### Code
 ```js
 const KoaServer = require("koa-webpack-http2").KoaServer;
+
 const server = new KoaServer({
     // Path to static files (webpack generated scripts and files)
     staticPath: path.resolve(__dirname, "./public"),
@@ -43,10 +44,12 @@ const server = new KoaServer({
     // Set customer headers, or override default cache behavior
     setHeaders: (response /* http2.Http2ServerResponse */, filePath /* string */, stat) => {},
     // Configure the server and the Koa app (e.g. app.use(cors()))
-    configure: (server /* KoaServer */, app /* Koa */) => {
+    configure: (server /* KoaServer */) => {
         // Default configuration includes compression, CORS,
         // webpack middleware in development environment, and static files in production environment
         server.configureDefault();
+
+        const app = server.app;
 
         // View engine setup
         app.use(views(path.resolve(__dirname, "views"), { extension: "pug" }));
@@ -57,6 +60,7 @@ const server = new KoaServer({
     // The webpack configuration for development environment
     webpackConfig: require(./webpack.dev.js)
 });
+
 server.listen(8080).then(() => { console.log("Koa server started."); });
 ```
 Note: webpack development and HMR middleware are only required in development environment.
