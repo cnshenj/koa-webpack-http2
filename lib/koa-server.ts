@@ -99,16 +99,21 @@ export class KoaServer {
 
         this._options = options;
         const { useHttp2, useHttps, configure } = options;
-        if (useHttp2 || useHttps) {
+        if (useHttp2) {
             this._server = useHttps
                 ? http2.createSecureServer({ cert: this.cert, key: this.key })
                 : http2.createServer();
-            this._wsServer = useHttps
-                ? https.createServer({ cert: this.wsCert, key: this.wsKey })
-                : http.createServer();
         } else {
             this._server = useHttps
                 ? https.createServer({ cert: this.cert, key: this.key })
+                : http.createServer();
+        }
+
+        if (this.isDev && (useHttp2 || useHttps)) {
+            // HTTP/2 doesn't support WebSocket; webpack-hot-client doesn't support WebSocker over HTTPS properly
+            // Create a separate WebSocket server as a workaround
+            this._wsServer = useHttps
+                ? https.createServer({ cert: this.wsCert, key: this.wsKey })
                 : http.createServer();
         }
 
