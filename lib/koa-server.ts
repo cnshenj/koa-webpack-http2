@@ -172,7 +172,7 @@ export class KoaServer {
      * @param port The port to listen to.
      * @param hostname The hostname of the server, default is localhost.
      */
-    public async listen(port: number, hostname?: string): Promise<void> {
+    public async listen(port: number | string, hostname?: string): Promise<void> {
         if (typeof hostname === "undefined" && this.isDev) {
             hostname = "localhost";
         }
@@ -180,6 +180,10 @@ export class KoaServer {
         return new Promise<void>(resolve => {
             if (this._wsServer) {
                 // If a separate WebSocket server is used, start it first
+                if (typeof port === "string") {
+                    throw new Error("Cannot automatically assign a port for WebSocket when port is not a number.");
+                }
+
                 this._wsServer.listen(port + 1, hostname, () => {
                     this.startHttpServer(port, hostname, resolve);
                 });
@@ -195,9 +199,9 @@ export class KoaServer {
      * @param hostname The hostname of the server, default is localhost.
      * @param callback The function to be called when the HTTP server starts listening.
      */
-    private startHttpServer(port: number, hostname: string | undefined, callback: () => void): void {
+    private startHttpServer(port: number | string, hostname: string | undefined, callback: () => void): void {
         const listeningListener = this.listeningListener.bind(this, callback);
-        if (typeof hostname === "undefined") {
+        if (typeof port === "string" || typeof hostname === "undefined") {
             this.httpServer.listen(port, listeningListener);
         } else {
             this.httpServer.listen(port, hostname, listeningListener);
@@ -232,7 +236,11 @@ export class KoaServer {
         // Configure the app until the server is started, so that server information can be used
         this._configure(this);
         server.on("request", this.app.callback());
-        winston.info(`Koa server listening on port ${server.address().port}`);
+        const address = server.address();
+        const listeningAddress = typeof address === "string"
+            ? address
+            : `${address.address}:${address.port}`;
+        winston.info(`Koa server listening on port ${listeningAddress}`);
         callback();
     }
 }
